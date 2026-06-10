@@ -1,22 +1,32 @@
 #include <Servo.h>
 
 
-#define pinServoDireito 6
-#define pinServoEsquerdo 5
+#define pinServoBracoDireito 6
+#define pinServoBracoEsquerdo 5
+
+#define pinServoRodaDireita 9
+#define pinServoRodaEsquerda 10
 
 #define potServoDireito A0
 #define potServoEsquerdo A1
 
-Servo servoDireito;
-Servo servoEsquerdo;
+Servo servoBracoDireito;
+Servo servoBracoEsquerdo;
 
-void bracoRobo();
+Servo servoRodaDireita;
+Servo servoRodaEsquerda;
+
+//-----------------Protótipos---------------
+void modoBracoRobo();
+void modoCarrinho();
+
 //--------------------------------------------
 //Está função  e variáveis servem para eu usar uma mesma interrupção
 //mas cada botão diferente faz uma função diferente 
-void interrupcoBotoes();
+void interrupcoBotoaoBranco();
+void interrupcoBotoaoVermelho();
 void acoesDosBotoes();
-volatile byte botaoPressionado = 0;
+
 //-------------------------------------------
 
 //--------------------------------------------
@@ -31,44 +41,60 @@ const unsigned long intervaloMostrador = 2000;
 100 → imprime 10 vezes por segundo.*/
 //--------------------------------------------
 
-const int botaoAzul = 13; //Botão para o robô. Um lado do botão no pino 13 e outro no GND.
-const int botaoVermelho = 12;
-const int botaoBranco = 11;
+const int botaoAzulEsquerdo = 13; //Botão para o robô. Um lado do botão no pino 13 e outro no GND.
+const int botaoAzulDireito = 12;
+const int botaoVermelho = 2; //*Somente pino 2 e 3 tem interrupção
+const int botaoBranco = 3;
 
-//-------deletarr---
-int brightness = 0;  // how bright the LED is
-int fadeAmount = 25;  // how many points to fade the LED by
 //---------------
 
 //variáveis globais
 
-int anguloServoDireito;
-int anguloServoEsquerdo;
+int anguloServoBracoDireito;
+int anguloServoBracoEsquerdo;
+volatile byte modo = 0; //modo = 0 -> Braço robo;
+                       // modo = 1 -> Modo carrinho
+
+//variável para quardar os valores dos ângulos dos servos das rodas
+int motor1, motor2;
+volatile byte botaoPressionado = 0;
+volatile bool pausado = false;
+int tempoDelay = 100;
 
 void setup() {
   // put your setup code here, to run once:]
   Serial.begin(9600); //começar comunicação serial
   Serial.print("Inicio:");
   //------------BOTÕES-----------------
-   pinMode(botaoAzul, INPUT_PULLUP);    //IPUT_PULLUP deixa em estdo 
+  pinMode(botaoAzulEsquerdo, INPUT_PULLUP);
+   pinMode(botaoAzulDireito, INPUT_PULLUP);    //IPUT_PULLUP deixa em estado 
    pinMode(botaoVermelho, INPUT_PULLUP);//lógico alto e detecta quando vai para zero
    pinMode(botaoBranco,INPUT_PULLUP);
   //-----------------------------------
 
   //----------SERVOS-------------------
   //atribuir pinos dos servos
-  servoDireito.attach(pinServoDireito);
-  servoEsquerdo.attach(pinServoEsquerdo);
+  servoBracoDireito.attach(pinServoBracoDireito);
+  servoBracoEsquerdo.attach(pinServoBracoEsquerdo);
+
+  servoRodaDireita.attach(pinServoRodaDireita);
+  servoRodaEsquerda.attach(pinServoRodaEsquerda);
 
   //posição inicial servos:
-  servoDireito.write(0);
-  servoEsquerdo.write(180);
+  servoBracoDireito.write(0);
+  servoBracoEsquerdo.write(180);
   //-----------------------------------
 
- /* //---------INTERRUPÇÃO--------------
+ //---------INTERRUPÇÕES--------------
   attachInterrupt(
     digitalPinToInterrupt(botaoBranco),
-    interrupcoBotoes, //função a ser chamada na interrupção
+    interrupcoBotoaoBranco, //função a ser chamada na interrupção
+    FALLING //borda de descida
+  );
+
+  attachInterrupt(
+    digitalPinToInterrupt(botaoVermelho),
+    interrupcoBotoaoVermelho, //função a ser chamada na interrupção
     FALLING //borda de descida
   );
 /*Modo	Dispara quando
@@ -91,14 +117,27 @@ ____|‾‾‾‾|____
 
 */
 
-  //----------------------------------*/
+  //----------------------------------
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
-  //Serial.print("loop:");
-  acoesDosBotoes();
-  bracoRobo();
+  if (pausado) { //Se o botão vermelho for apertado, pausa o programa
+        servoRodaDireita.write(90);
+        servoRodaEsquerda.write(90);
+
+        while (pausado) {
+          Serial.println("PAUSADO");
+            delay(50);
+        }
+  
+    
+    
+  }
+
+  
+  modoBracoRobo();
+  modoCarrinho();
 
   ImprimeSerialEmIntervalos();
 }
@@ -122,11 +161,24 @@ if ((millis() - mostradorTimer) >= intervaloMostrador) {
   Serial.println(F("****************************"));
   
   Serial.print("Angulo Direito:");
-  Serial.println(anguloServoDireito);
+  Serial.println(anguloServoBracoDireito);
 
   Serial.print("Angulo Esquerdo:");
-  Serial.println(anguloServoEsquerdo);
+  Serial.println(anguloServoBracoEsquerdo);
 
+  if(modo == 0){
+   Serial.print("Modo robô:");
+  Serial.println(modo);
+ }
+ else if (modo ==1){
+   Serial.print("Modo Carrinho ângular:");
+  Serial.println(modo);
+ }
+
+  else if (modo ==2){
+   Serial.print("Modo Carrinho linear:");
+  Serial.println(modo);
+ }
   
 
 //==========================================
@@ -136,8 +188,29 @@ if ((millis() - mostradorTimer) >= intervaloMostrador) {
 }
 //--------------------------------------------
 
-void interrupcoBotoes(){
+//-------------------------------------------
+void interrupcoBotoaoVermelho(){
+
+pausado = !pausado;
+
+}
+//-------------------------------------------
+
+void interrupcoBotoaoBranco(){
   
+ if(modo == 0){
+  modo = 1;
+  return;
+ }
+ else if (modo ==1){
+  modo = 2;
+  return;
+ }
+
+  else if (modo ==2){
+  modo = 0;
+  return;
+ }
  
 
 }
@@ -145,42 +218,49 @@ void interrupcoBotoes(){
 
 void acoesDosBotoes(){
 
-   if(digitalRead(botaoAzul) == LOW){
+  if(digitalRead(botaoAzulEsquerdo) == LOW && digitalRead(botaoAzulDireito) == LOW) {
   
       botaoPressionado = 1;
 
   }
+  
 
-  else if(digitalRead(botaoVermelho) == LOW){
+  else if(digitalRead(botaoAzulDireito) == LOW){
   
       botaoPressionado = 2;
 
   }
 
-  else if(digitalRead(botaoBranco) == LOW){
+  else if(digitalRead(botaoAzulEsquerdo) == LOW){
   
       botaoPressionado = 3;
 
   }
 
+
+
+
   switch(botaoPressionado){
 
     case 1:
-      //ação do botão Azul
-      Serial.print("Botão Azul apertado:");
+      //ação de quando ambos os botões azulis forem apertados no modo Braço Robo
+      Serial.println("Dois botões Azuis apertados:");
       botaoPressionado = 0;
+      delay(tempoDelay);
       break;
 
     case 2: 
-      //ação do botão Vermelho
-      Serial.print("Botão Vermelho apertado:");
+      //ação do botão Azul Direito quando estiver no modo Braço Robo
+      Serial.println("Botão Azul Direito apertado:");
       botaoPressionado = 0;
+      delay(tempoDelay);
       break;
 
     case 3:
-      //Ação do botão Branco
-      Serial.print("Botão Branco apertado:");
+      //Ação do botão Azul Esquerdo quando estiver no modo Braço Robo
+      Serial.println("Botão Azul Esquerdo apertado:");
       botaoPressionado = 0;
+      delay(tempoDelay);
       break;
 
     default:
@@ -191,38 +271,121 @@ void acoesDosBotoes(){
 }
 //--------------------------------------------
 
-void bracoRobo(){
-
-  int leituraAnalogicaPotDireito= map(analogRead(potServoDireito), 0, 1023, 0, 255);
+void modoBracoRobo(){
+  
+if(modo == 0){
+  acoesDosBotoes();
+  int leituraAnalogicaPotDireito= map(analogRead(potServoDireito), 0, 1023, 0, 255); //mapear a entrada analogica(10 bits) com a saida analogica (8bits)
   int leituraAnalogicaPotEsquerdo= map(analogRead(potServoEsquerdo), 0, 1023, 0, 255);
   
-  anguloServoDireito = map(leituraAnalogicaPotDireito, 0, 255, 0, 95);
-  anguloServoEsquerdo = map(leituraAnalogicaPotEsquerdo, 255, 0, 0, 180);
-  delay(250);
- servoDireito.write(anguloServoDireito); //repouso 0
-  servoEsquerdo.write(anguloServoEsquerdo); //repouso 180
-  
-  // change the brightness for next time through the loop:
-  brightness = brightness + fadeAmount;
+  anguloServoBracoDireito = map(leituraAnalogicaPotDireito, 0, 255, 0, 95); //mapear a saída analogica com o angulo
+  anguloServoBracoEsquerdo = map(leituraAnalogicaPotEsquerdo, 255, 0, 0, 180);
+  delay(50);
+  servoBracoDireito.write(anguloServoBracoDireito); //repouso 0
+  servoBracoEsquerdo.write(anguloServoBracoEsquerdo); //repouso 180
+}
+ 
+}
 
-  // reverse the direction of the fading at the ends of the fade:
-  if (brightness <= 0 || brightness >= 65) {
-    fadeAmount = -fadeAmount;}
-  // servoDireito.write(0);
-    // delay(100);
- //servoEsquerdo.write(180);
+void modoCarrinho(){
+ int PARADO = 90;
+ //Movimento Angular
+ if(modo == 1){
+     // PARADO (base)
+ 
+
+
+   while(digitalRead(botaoAzulEsquerdo) == LOW){
+
+        if (pausado) {
+        servoRodaDireita.write(90);
+        servoRodaEsquerda.write(90);
+        return;
+        }
   
-/*for(int i =0; i<=10;i++){
-   delay(1000);
-   servoDireito.write(0);
-   delay(1000);
-    servoEsquerdo.write(180);
-    delay(1000);
-    servoDireito.write(45);
-     delay(1000);
-    servoEsquerdo.write(125);
-    }
-*/
-   
+    motor1 = 160;
+    motor2 = 160;
+    servoRodaDireita.write(motor1);
+    servoRodaEsquerda.write(motor2);
+    Serial.println("Botão Azul 1 apertado:");
+    
+
+  }
+
+  
+
+ 
+   while(digitalRead(botaoAzulDireito) == LOW){
+
+        if (pausado) {
+        servoRodaDireita.write(90);
+        servoRodaEsquerda.write(90);
+        return;
+        }
+  
+    motor1 = 20;
+    motor2 = 20;
+    servoRodaDireita.write(motor1);
+    servoRodaEsquerda.write(motor2);
+    Serial.println("Botão Azul 2 apertado:");
+    
+
+  }
+  servoRodaDireita.write(PARADO);
+  servoRodaEsquerda.write(PARADO);
+  
+  delay(200);
+  
+ }
+
+//Movimento Linear
+  if(modo == 2){
+     // PARADO (base)
+  
+
+
+   while(digitalRead(botaoAzulEsquerdo) == LOW){
+
+        if (pausado) {
+        servoRodaDireita.write(90);
+        servoRodaEsquerda.write(90);
+        return;
+        }
+  
+    motor1 = 20;
+    motor2 = 160;
+    servoRodaDireita.write(motor1);
+    servoRodaEsquerda.write(motor2);
+    Serial.println("Botão Azul 1 apertado:");
+    
+
+  }
+
+  
+
+ 
+   while(digitalRead(botaoAzulDireito) == LOW){
+
+        if (pausado) {
+        servoRodaDireita.write(90);
+        servoRodaEsquerda.write(90);
+        return;
+        }
+  
+    motor1 = 160;
+    motor2 = 20;
+    servoRodaDireita.write(motor1);
+    servoRodaEsquerda.write(motor2);
+    Serial.println("Botão Azul 2 apertado:");
+    
+
+  }
+  servoRodaDireita.write(PARADO);
+  servoRodaEsquerda.write(PARADO);
+  
+  delay(200);
+  
+ }
 
 }
+
